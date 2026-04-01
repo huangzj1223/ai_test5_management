@@ -146,6 +146,45 @@ def extract_pdf_text(
     finally:
         temp_file.close()  # 显式关闭文件句柄，释放文件锁
 
+    if ext.lower() in [".doc", ".docx"]:
+        try:
+            logger.info(f"使用 python-docx 解析Word文档: {filename}")
+            import docx
+            doc = docx.Document(temp_file_path)
+            full_text = []
+            for para in doc.paragraphs:
+                full_text.append(para.text)
+            for table in doc.tables:
+                for row in table.rows:
+                    row_data = [cell.text for cell in row.cells]
+                    full_text.append(" | ".join(row_data))
+            text_content = "\n".join(full_text)
+
+            if not text_content.strip():
+                text_content = "Word文件解析后文本为空"
+            else:
+                logger.info(f"Word 解析成功，内容长度: {len(text_content)} 字符")
+
+            # 缓存结果
+            if cache is not None:
+                cache[cache_key] = text_content
+                logger.info(f"内容已缓存: {filename}")
+
+            return text_content
+        except Exception as e:
+            logger.warning(f"Word 解析失败: {e}")
+            if ext.lower() == ".doc":
+                text_content = f"不支持老旧的 .doc 格式或解析失败，请在本地转存为 .docx 格式后再上传重试。（错误信息: {str(e)}）"
+            else:
+                text_content = f"Word文件处理出错: {str(e)}"
+
+            # 缓存结果
+            if cache is not None:
+                cache[cache_key] = text_content
+            return text_content
+        finally:
+            _safe_delete_temp_file(temp_file_path)
+
     try:
         logger.info(f"使用 多模态解析器 解析文件: {filename}，多模态={use_multimodal}")
         if use_multimodal:

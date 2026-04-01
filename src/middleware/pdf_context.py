@@ -238,11 +238,21 @@ class PDFContextMiddleware(AgentMiddleware):
             if not isinstance(att, dict):
                 continue
 
+            filename = att.get("metadata", {}).get("filename", f"file_{len(extracted_files)}")
             mime_type = att.get("mimeType", "").lower()
-            is_pdf = mime_type == "application/pdf"
-            is_image = mime_type.startswith("image/")
 
-            if not (is_pdf or is_image):
+            is_pdf = mime_type == "application/pdf" or filename.lower().endswith(".pdf")
+            is_image = mime_type.startswith("image/") or filename.lower().endswith(
+                (".jpg", ".jpeg", ".png", ".gif", ".webp"))
+            is_word = (
+                    mime_type in [
+                "application/msword",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ]
+                    or filename.lower().endswith((".doc", ".docx"))
+            )
+
+            if not (is_pdf or is_image or is_word):
                 continue
 
             data = att.get("data")
