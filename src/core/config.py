@@ -1,4 +1,11 @@
+"""
+版权所有 (c) 2023-2026 北京慧测信息技术有限公司(但问智能) 保留所有权利。
 
+本代码版权归北京慧测信息技术有限公司(但问智能)所有，仅用于学习交流目的，未经公司商业授权，
+不得用于任何商业用途，包括但不限于商业环境部署、售卖或以任何形式进行商业获利。违者必究。
+
+授权商业应用请联系微信：huice666
+"""
 
 import os
 import logging
@@ -17,8 +24,7 @@ class Settings(BaseSettings):
 
     # 图片解析 LLM 配置
     IMAGE_PARSER_API_BASE: str = os.getenv("IMAGE_PARSER_API_BASE", "https://ark.cn-beijing.volces.com/api/v3")
-    IMAGE_PARSER_API_KEY: str = os.getenv("IMAGE_PARSER_API_KEY", "e4ff4ed2-0721-4ac7-8abc-5487d4cbfff2")
-    #e4ff4ed2-0721-4ac7-8abc-5487d4cbfff2#我自己的
+    IMAGE_PARSER_API_KEY: str = os.getenv("IMAGE_PARSER_API_KEY", "629f917a-86fa-40d0-862d-e840cc667977")
     IMAGE_PARSER_MODEL: str = os.getenv("IMAGE_PARSER_MODEL", "doubao-seed-1-6-vision-250815")
 
     # PDF 多模态处理配置

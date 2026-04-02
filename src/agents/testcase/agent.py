@@ -1,5 +1,4 @@
 from pathlib import Path
-import logging
 
 from deepagents import create_deep_agent as create_agent
 from deepagents.backends import FilesystemBackend
@@ -9,10 +8,46 @@ from langchain.agents.middleware import ModelRequest, ModelResponse, wrap_model_
 from langchain.chat_models import init_chat_model
 
 from core.llms import image_llm_model, deepseek_model
-from middleware.pdf_context import PDFContextMiddleware
+from middleware.file_context import FileContextMiddleware
+from agents.testcase.excel_exporter import export_test_cases_to_excel
+
 load_dotenv()
 
-logger = logging.getLogger(__name__)
+
+# ============================================================================
+# 工具注册
+# ============================================================================
+
+from langchain.tools import tool
+
+
+@tool
+def export_testcases_to_excel(test_cases: list, output_path: str, sheet_name: str = "测试用例") -> str:
+    """
+    将测试用例列表导出为 Excel 文件。
+
+    当用户要求导出 Excel 格式、或需要将用例导入禅道/Tapd/TestRail 等工具时调用。
+
+    Args:
+        test_cases: 测试用例列表，每条用例为字典，包含以下字段：
+            - id / 用例编号（必填）
+            - title / 用例标题（必填）
+            - module / 所属模块
+            - type / 用例类型（功能测试/接口测试/安全测试/性能测试/兼容测试等）
+            - priority / 优先级（P0/P1/P2/P3）
+            - preconditions / 前置条件（字符串或字符串列表）
+            - steps / 测试步骤（字典列表，每个字典包含 seq/action/target/data）
+            - test_data / 测试数据（字符串或字典）
+            - expected_results / 预期结果（字符串或字符串列表）
+            - remarks / 备注
+        output_path: 导出的 Excel 文件路径，建议放在工作目录下，如 "./exports/测试用例.xlsx"
+        sheet_name: 工作表名称，默认为 "测试用例"
+
+    Returns:
+        导出成功的文件绝对路径
+    """
+    return export_test_cases_to_excel(test_cases, output_path, sheet_name)
+
 
 
 # ============================================================================
@@ -216,90 +251,10 @@ LOGIN/REG/PROFILE/AUTH/ORDER/PAY/CART/SEARCH/UPLOAD/EXPORT/MSG/SYS/REPORT/PROD
 请始终以企业级测试工程师的专业标准执行每一个任务。现在，请告诉我你的测试需求，或直接上传需求文档。
 """
 
+"""
 def _has_image_in_messages(request: ModelRequest) -> bool:
-    """
-    遍历 request.messages，检测 HumanMessage 的 content 列表中是否存在图片 block。
-
-    实际图片 block 格式（前端传入）：
-        {
-            "type": "image",
-            "data": "/9j/4AAQ...",          # base64 编码的图片数据
-            "mimeType": "image/png",         # MIME 类型
-            "metadata": {"name": "login.png"} # 可选元数据
-        }
-
-    同时兼容 OpenAI image_url 格式：
-        {"type": "image_url", "image_url": {"url": "data:image/png;base64,..."}}
-    """
-    for message in request.messages:
-        content = message.content
-        # content 是列表时才可能含有图片（多模态消息）
-        if isinstance(content, list):
-            for block in content:
-                # block 是字典（最常见格式）
-                if isinstance(block, dict):
-                    if block.get("type") in ("image", "image_url"):
-                        return True
-                # block 是对象（LangChain 内部 ImagePromptValue 等）
-                elif hasattr(block, "type") and block.type in ("image", "image_url"):
-                    return True
-    return False
-
-
-def _get_multimodal_flag_from_messages(request: ModelRequest) -> bool | None:
-    """
-    从消息历史中读取前端传递的 ENABLE_PDF_MULTIMODAL 标志。
-
-    扫描全部 HumanMessage（不只是最后一条），找到第一个携带该字段的消息。
-    LangGraph 在同一次图调用中会将所有历史消息传给 middleware，因此即使
-    是续写（非首次 LLM 调用），该标志依然可以从历史 HumanMessage 中读到。
-
-    Returns:
-        True / False：前端显式传入的值。
-        None：消息中未包含该字段，由 settings 决定。
-    """
-    from langchain_core.messages import HumanMessage as _HumanMessage
-    # 倒序扫描，优先取最近一条 HumanMessage 的值
-    for msg in reversed(request.messages):
-        if not isinstance(msg, _HumanMessage):
-            continue
-        value = msg.additional_kwargs.get("ENABLE_PDF_MULTIMODAL")
-        if value is None:
-            continue
-        if isinstance(value, bool):
-            return value
-        return str(value).lower() == "true"
-    return None
-
-
-@wrap_model_call
-async def dynamic_model_selection(request: ModelRequest, handler) -> ModelResponse:
-    """
-    根据前端开关或消息中是否含有图片，动态切换底层模型：
-      - 消息含图片 OR 前端开启多模态 → image_llm_model（豆包多模态视觉模型）
-      - 其他情况（开关关闭或未传）   → deepseek_model（DeepSeek Chat）
-
-    规则（完全由前端控制，不读 .env ENABLE_PDF_MULTIMODAL）：
-      1. 消息中包含图片块 → 强制豆包（图片必须多模态处理）
-      2. 前端 ENABLE_PDF_MULTIMODAL=true → 豆包
-      3. 前端 ENABLE_PDF_MULTIMODAL=false 或 未传 → DeepSeek
-    """
-    has_image = _has_image_in_messages(request)
-    frontend_flag = _get_multimodal_flag_from_messages(request)
-
-    # 有图片：强制豆包；否则完全由前端开关决定，开关未传时默认 DeepSeek
-    use_multimodal = has_image or (frontend_flag is True)
-
-    if use_multimodal:
-        model = image_llm_model
-        logger.info("[dynamic_model_selection] 豆包多模态模型 (has_image=%s, frontend_flag=%s)",
-                    has_image, frontend_flag)
-    else:
-        model = deepseek_model
-        logger.info("[dynamic_model_selection] DeepSeek 文本模型 (has_image=%s, frontend_flag=%s)",
-                    has_image, frontend_flag)
-
-    return await handler(request.override(model=model))
+... Omitted obsolete logic ...
+"""
 
 skills_root = Path(r"C:\Users\65132\Desktop\workspace\testing\ai-test-agent-system\src\workspace\testcase").resolve()
 skills_backend = FilesystemBackend(root_dir=skills_root, virtual_mode=True)
@@ -310,8 +265,8 @@ skills_middleware = SkillsMiddleware(
 )
 agent = create_agent(
     model=llm,
-    tools=[],
+    tools=[export_testcases_to_excel],
     backend=skills_backend,
-    middleware=[skills_middleware, dynamic_model_selection, PDFContextMiddleware(original_system_prompt=SYSTEM_PROMPT)],
+    middleware=[skills_middleware, FileContextMiddleware(original_system_prompt=SYSTEM_PROMPT)],
     system_prompt=SYSTEM_PROMPT
 )

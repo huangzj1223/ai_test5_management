@@ -101,12 +101,12 @@ class PDFContextMiddleware(AgentMiddleware):
         self._original_system_content: str | list | None = original_system_prompt
         # per-session 文档状态：thread_id -> doc_text（替换语义）
         self._session_docs: dict[str, str] = {}
-        # per-session 已解析 PDF 的 hash：thread_id -> pdf_md5
-        # 用于判断"当前消息是否携带了和上次不同的新 PDF"
+        # per-session 已解析文件的 hash：thread_id -> files_md5
+        # 用于判断"当前消息是否携带了和上次不同的新文件"
         # 相同 hash → 直接复用 _session_docs，跳过解析
         # 不同 hash → 新文件，重新解析并覆盖
         # 不存在   → 从未上传过，不触发解析
-        self._session_pdf_hash: dict[str, str] = {}
+        self._session_files_hash: dict[str, str] = {}
 
     async def awrap_model_call(
             self,
@@ -147,7 +147,7 @@ class PDFContextMiddleware(AgentMiddleware):
                 hash_builder.update(file_data)
             combined_hash = hash_builder.hexdigest()
 
-            if self._session_pdf_hash.get(thread_id) == combined_hash:
+            if self._session_files_hash.get(thread_id) == combined_hash:
                 logger.debug(
                     "[PDFContextMiddleware] 会话 %s 文件未变化（hash=%s），跳过重复解析",
                     thread_id, combined_hash,
@@ -170,7 +170,7 @@ class PDFContextMiddleware(AgentMiddleware):
                 if all_text:
                     merged_text = "\n\n".join(all_text)
                     self._session_docs[thread_id] = merged_text
-                    self._session_pdf_hash[thread_id] = combined_hash
+                    self._session_files_hash[thread_id] = combined_hash
                     logger.info(
                         "[PDFContextMiddleware] 会话 %s 文档已更新，共 %d 个文件，长度: %d 字符",
                         thread_id, len(file_infos), len(merged_text),
@@ -218,8 +218,10 @@ class PDFContextMiddleware(AgentMiddleware):
         return "__default__"
 
     def _extract_files_from_last_message(self, request: ModelRequest) -> list[tuple[bytes, str, str]]:
-        """只从「最后一条用户消息」中提取 PDF 和图片附件。
+        """只从「最后一条用户消息」中提附件（包括 PDF、图片、Word 等）。
         返回列表：[(bytes, filename, mime_type), ...]
+
+        结合外层的 hash 比对，实现"仅用户本次上传时解析，后续对话完全复用"的正确语义。
         """
         extracted_files = []
         if not request.messages:
@@ -331,7 +333,7 @@ class PDFContextMiddleware(AgentMiddleware):
     def clear_session(self, thread_id: str) -> None:
         """主动清除指定会话的文档状态（可供外部调用，例如用户点击「清除上下文」）。"""
         removed = self._session_docs.pop(thread_id, None)
-        self._session_pdf_hash.pop(thread_id, None)
+        self._session_files_hash.pop(thread_id, None)
         if removed is not None:
             logger.info("[PDFContextMiddleware] 会话 %s 的文档状态已清除", thread_id)
 
