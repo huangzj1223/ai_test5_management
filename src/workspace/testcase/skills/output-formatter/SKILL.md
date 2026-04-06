@@ -71,10 +71,10 @@ TC-USER-AUTH-001   → 用户系统，认证模块，第1条
 ```
 
 **预期结果**：
-1. ✅ [UI层：页面/组件的状态变化，精确描述]
-2. ✅ [接口层：HTTP状态码、响应体中的关键字段]
-3. ✅ [数据层：数据库/缓存中的状态变化]
-4. ✅ [日志层：关键操作日志记录（如需）]
+（🚨极其重要：预期结果的**条数**必须与测试步骤的**条数**完全一致，严格按序号一一对应。如果中间输入步骤无明显视觉反馈，也必须补齐占位值（如：“输入框正常显示内容”或“无明显变化”）。如果最后一步触发了多个断言验证点（UI、接口、数据库等），必须使用换行符或分号将它们合并到这同一条结果中！坚决不允许断言的总数多于或少于步骤的总数！）
+1. [对应步骤1的单条预期，如：用户名输入框正常显示内容]
+2. [对应步骤2的单条预期，如：密码框正常显示掩码字符]
+N. [对应步骤N的最后一条综合预期，包含所有最终断言：✅UI不跳转；✅下方显示红色报错；✅接口返回401；✅数据库无异常记录 等等全部并入当前第N条]
 
 **备注**：关联需求 `REQ-[ID]` | 风险级别：[高/中/低]
 ```
@@ -112,7 +112,7 @@ TC-USER-AUTH-001   → 用户系统，认证模块，第1条
 
 ```csv
 用例编号,用例标题,所属模块,用例类型,优先级,前置条件,测试步骤,测试数据,预期结果,备注
-TC-XXX-LOGIN-001,正确账号密码登录,用户登录,功能测试,P0,"账号已注册且状态正常","1.打开登录页；2.输入用户名；3.输入密码；4.点击登录","用户名:test001;密码:Test@123","1.跳转首页；2.显示用户名；3.生成登录日志",REQ-LOGIN-001
+TC-XXX-LOGIN-001,正确账号密码登录,用户登录,功能测试,P0,"账号已注册且状态正常","1.打开登录页；2.输入用户名；3.输入密码；4.点击登录","用户名:test001;密码:Test@123","1.显示登录页面；2.输入正常；3.输入正常；4.跳转首页且显示用户名",REQ-LOGIN-001
 ```
 
 ---
@@ -159,14 +159,13 @@ test_cases = [
         "steps": [
             {"seq": 1, "action": "打开登录页面", "target": "登录页URL"},
             {"seq": 2, "action": "输入用户名", "target": "用户名输入框", "data": "test001"},
-            {"seq": 3, "action": "输入密码", "target": "密码输入框", "data": "Test@123"},
-            {"seq": 4, "action": "点击登录按钮", "target": "登录按钮"},
+            {"seq": 3, "action": "点击登录按钮", "target": "登录按钮"},
         ],
         "test_data": {"username": "test001", "password": "Test@123"},
         "expected_results": [
-            "HTTP响应码200，响应体包含 token 字段",
-            "页面跳转至 /dashboard",
-            "数据库 login_log 表新增一条记录"
+            "输入框正确显示test001",
+            "密码框隐式显示*****",
+            "1.HTTP响应码200跳转至 /dashboard；2.同时 login_log 增加记录"
         ],
         "remarks": "REQ-LOGIN-001 | 风险级别：低"
     }
@@ -196,14 +195,15 @@ export_test_cases_to_excel(test_cases, "./exports/CRM登录模块测试用例.xl
         "design_method": "equivalence_partitioning",
         "preconditions": ["账号已注册", "账号状态正常"],
         "steps": [
-          {"seq": 1, "action": "打开登录页面", "target": "登录页URL"},
-          {"seq": 2, "action": "输入用户名", "target": "用户名输入框", "data": "test001"}
+          {"seq": 1, "action": "在用户名输入框输入测试数据", "data": "test001"},
+          {"seq": 2, "action": "在密码输入框输入测试数据", "data": "Test@123"},
+          {"seq": 3, "action": "点击登录按钮"}
         ],
         "test_data": {"username": "test001", "password": "Test@123"},
         "expected_results": [
-          "HTTP响应码200，包含token字段",
-          "页面跳转至/dashboard",
-          "数据库login_log表新增记录"
+          "输入框正常显示输入的用户名",
+          "密码框正常显示为掩码字符",
+          "1.页面跳转至/dashboard；2.HTTP返回200；3.插入login_log记录"
         ],
         "requirements": ["REQ-LOGIN-001"],
         "risk_level": "high"
@@ -211,6 +211,30 @@ export_test_cases_to_excel(test_cases, "./exports/CRM登录模块测试用例.xl
     ]
   }
 }
+```
+
+---
+
+## 输出格式六：Word (DOCX)格式
+
+当用户明确要求导出 Word 或 DOCX 文件时，调用 `export_testcases_to_docx` 工具生成 `.docx` 文件。
+
+### Word 文件结构与样式
+- **表格结构**：为**每个测试用例创建一个独立的表格**，并且将所有表格写入同一个文档中。各个用例表格之间空一行。
+- **标题**：在每个表格上方以加粗大字体显示 `"用例 {序号}：{用例名称}"`！
+- **表头**：加粗、灰色背景、居中对齐。
+- **内容单元格**：左对齐，垂直顶部对齐（内容自动换行）。
+- **列宽分布**（页面总宽100%）：编号(8%)、名称(15%)、前置条件(12%)、步骤(20%)、输入(12%)、预期(15%)、实际(10%)、状态(8%)
+
+### 调用示例（Python）
+
+```python
+from agents.testcase.docx_exporter import export_test_cases_to_docx
+
+test_cases = [
+    # 结构同 Excel 导出
+]
+export_test_cases_to_docx(test_cases, "./exports/测试用例文档.docx")
 ```
 
 ---
@@ -225,7 +249,8 @@ export_test_cases_to_excel(test_cases, "./exports/CRM登录模块测试用例.xl
 | 导入Jira Xray | JSON格式 |
 | 自动化脚本生成 | JSON格式 |
 | 需要精美排版、直接发给业务方审阅 | Excel格式 |
+| 需要打印或作为测试报告附件发散 | Word (DOCX) 格式 |
 
 > 💡 **默认行为**：未指定格式时，优先输出「Markdown详细格式」，每个模块完成后附带「表格汇总格式」
-> 💡 **导出行为**：当用户明确说"导出Excel"或"生成Excel"时，优先调用 `export_testcases_to_excel` 工具直接生成文件，而不是在对话中打印 CSV 文本。
+> 💡 **导出行为**：当用户明确说"导出Excel"或"生成Excel"时，优先调用 `export_testcases_to_excel`工具；若用户说"导出Word"、"生成Docx"等，优先调用 `export_testcases_to_docx` 工具。
 

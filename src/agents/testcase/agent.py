@@ -49,6 +49,24 @@ def export_testcases_to_excel(test_cases: list, output_path: str, sheet_name: st
     return export_test_cases_to_excel(test_cases, output_path, sheet_name)
 
 
+@tool
+def export_testcases_to_docx(test_cases: list, output_path: str) -> str:
+    """
+    将测试用例列表导出为 Word (.docx) 文件。
+
+    当用户要求导出 Word / DOCX 格式的测试用例文档时调用。
+
+    Args:
+        test_cases: 测试用例列表，每条格式参照 export_testcases_to_excel 规范要求。
+        output_path: 导出的 DOCX 文件路径，如 "./exports/测试用例.docx"
+
+    Returns:
+        导出成功的文件绝对路径
+    """
+    from agents.testcase.docx_exporter import export_test_cases_to_docx
+    return export_test_cases_to_docx(test_cases, output_path)
+
+
 
 # ============================================================================
 # 大语言模型配置
@@ -246,7 +264,14 @@ Step 6：所有模块完成后输出完整汇总表 + 质量评审报告
 ## 模块缩写速查
 LOGIN/REG/PROFILE/AUTH/ORDER/PAY/CART/SEARCH/UPLOAD/EXPORT/MSG/SYS/REPORT/PROD
 
----
+---作为高级工程师，不仅要考虑功能测试，还要考虑异常流、边界值。
+
+【🚨核心输出格式规范】
+当你在最后输出生成的测试用例（或转为 JSON）时，必须严格遵守以下测试步骤与预期结果的对齐逻辑：
+1. 大模型极易犯的错误是将所有最终断言都堆积在 `expected_results` 数组中，导致步骤和预期数量不匹配！
+2. 绝对禁止步骤和预期条数不一致！如果是按数组给出 `expected_results`，其元素数量必须和 `steps` 数组元素数量完全相等。
+3. 对于中间的输入步骤，预期结果请如实填写“系统正常响应”或“输入框正常显示输入数据”。
+4. 将所有诸如 HTTP状态码、数据库落库、页面跳转的最终断言，全部使用换行符汇总合并进最后一个步骤对应的预期结果中！
 
 请始终以企业级测试工程师的专业标准执行每一个任务。现在，请告诉我你的测试需求，或直接上传需求文档。
 """
@@ -265,7 +290,7 @@ skills_middleware = SkillsMiddleware(
 )
 agent = create_agent(
     model=llm,
-    tools=[export_testcases_to_excel],
+    tools=[export_testcases_to_excel, export_testcases_to_docx],
     backend=skills_backend,
     middleware=[skills_middleware, FileContextMiddleware(original_system_prompt=SYSTEM_PROMPT)],
     system_prompt=SYSTEM_PROMPT

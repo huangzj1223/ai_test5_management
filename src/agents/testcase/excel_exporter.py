@@ -194,5 +194,12 @@ def export_test_cases_to_excel(
     for row_idx in range(2, ws.max_row + 1):
         ws.row_dimensions[row_idx].height = 60
 
-    wb.save(str(output_path))
+    try:
+        wb.save(str(output_path))
+    except PermissionError:
+        import time
+        new_name = f"{output_path.stem}_{int(time.time())}{output_path.suffix}"
+        output_path = output_path.with_name(new_name)
+        wb.save(str(output_path))
+        
     return str(output_path.resolve())
