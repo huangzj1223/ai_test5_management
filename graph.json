@@ -1,7 +1,10 @@
 {
   "dependencies": ["."],
   "graphs": {
-     "agent": {
+    "agent": {
+      "path": "./src/agents/testcase/agent.py:agent"
+    },
+    "chat_agent": {
       "path": "./src/agents/testcase/agent.py:agent"
     }
   },

@@ -15,6 +15,9 @@ dependencies = [
     "langchain-pymupdf4llm>=0.5.0",
     "pymupdf4llm>=0.0.17",
     "asyncio>=4.0.0",
+    "fastmcp>=3.1.1",
+    "langchain-ollama>=1.0.1",
     "pandas>=3.0.2",
     "openpyxl>=3.1.5",
+    "playwright>=1.58.0",
 ]

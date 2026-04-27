@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from pathlib import Path
 
 from deepagents import create_deep_agent as create_agent
@@ -9,62 +10,16 @@ from langchain.chat_models import init_chat_model
 
 from core.llms import image_llm_model, deepseek_model
 from middleware.file_context import FileContextMiddleware
-from agents.testcase.excel_exporter import export_test_cases_to_excel
+from middleware.rag_context import RAGMiddleware
+from agents.testcase.tools import get_all_tools
 
 load_dotenv()
 
 
-# ============================================================================
-# 工具注册
-# ============================================================================
-
-from langchain.tools import tool
-
-
-@tool
-def export_testcases_to_excel(test_cases: list, output_path: str, sheet_name: str = "测试用例") -> str:
-    """
-    将测试用例列表导出为 Excel 文件。
-
-    当用户要求导出 Excel 格式、或需要将用例导入禅道/Tapd/TestRail 等工具时调用。
-
-    Args:
-        test_cases: 测试用例列表，每条用例为字典，包含以下字段：
-            - id / 用例编号（必填）
-            - title / 用例标题（必填）
-            - module / 所属模块
-            - type / 用例类型（功能测试/接口测试/安全测试/性能测试/兼容测试等）
-            - priority / 优先级（P0/P1/P2/P3）
-            - preconditions / 前置条件（字符串或字符串列表）
-            - steps / 测试步骤（字典列表，每个字典包含 seq/action/target/data）
-            - test_data / 测试数据（字符串或字典）
-            - expected_results / 预期结果（字符串或字符串列表）
-            - remarks / 备注
-        output_path: 导出的 Excel 文件路径，建议放在工作目录下，如 "./exports/测试用例.xlsx"
-        sheet_name: 工作表名称，默认为 "测试用例"
-
-    Returns:
-        导出成功的文件绝对路径
-    """
-    return export_test_cases_to_excel(test_cases, output_path, sheet_name)
-
-
-@tool
-def export_testcases_to_docx(test_cases: list, output_path: str) -> str:
-    """
-    将测试用例列表导出为 Word (.docx) 文件。
-
-    当用户要求导出 Word / DOCX 格式的测试用例文档时调用。
-
-    Args:
-        test_cases: 测试用例列表，每条格式参照 export_testcases_to_excel 规范要求。
-        output_path: 导出的 DOCX 文件路径，如 "./exports/测试用例.docx"
-
-    Returns:
-        导出成功的文件绝对路径
-    """
-    from agents.testcase.docx_exporter import export_test_cases_to_docx
-    return export_test_cases_to_docx(test_cases, output_path)
+@dataclass
+class Context:
+    """Custom runtime context schema."""
+    enable_rag: bool = True
 
 
 
@@ -83,6 +38,14 @@ SYSTEM_PROMPT = """
 你是一位拥有15年经验的资深测试架构师，同时精通测试用例设计方法论与质量工程体系。你服务于企业级软件测试团队，能够处理从简单功能验证到复杂分布式系统的全场景测试设计任务。你的核心价值在于：将模糊的产品需求转化为高质量、可执行、可量化的测试资产。
 
 你拥有完整的Skills知识体系，每项任务严格遵循对应的Skill规范执行。
+
+## 核心工作铁律
+
+**先 RAG，后分析；无检索，不设计**：
+1. 收到任何测试需求后，**必须首先激活 `rag-query` Skill**，查询历史测试用例、业务规则、领域知识
+2. **所有需求分析必须基于 RAG 检索到的上下文**展开，禁止在零上下文的情况下直接推导
+3. 若知识库检索结果为空，需在分析报告中明确标注「[RAG检索] 未检索到相关历史知识」，再继续基于需求原文分析
+4. RAG 检索完成后，才能进入功能模块提取、测试矩阵构建等后续步骤
 
 当用户提供测试用例样例，并明确要求后续生成结果参考样例时，必须优先激活并遵循 `testcase-sample-style` Skill，使前置条件、测试步骤、预期结果三个字段的写法、粒度和可执行性与样例保持一致。
 
@@ -111,21 +74,30 @@ SYSTEM_PROMPT = """
 
 # 标准工作流程（强制执行）
 
-## Phase 1：需求深度解析【必须首先执行】
+## Phase 1：需求深度解析与 RAG 检索【必须首先执行】
 
-收到需求输入（任何形式：文档/图片/描述）后，**立即且强制**执行以下分析：
+收到需求输入（任何形式：文档/图片/描述）后，**立即且强制**执行以下分析。
+**铁律：本 Phase 必须以 `rag-query` Skill 的 RAG 检索作为第一步，未完成检索不得进入后续分析。**
 
 ```
-1. 识别文档类型与结构
-2. 提取功能模块列表（按业务域分组）
-3. 梳理核心业务流程（主流程 + 分支 + 异常流程）
-4. 建立功能测试矩阵（模块 × 测试维度）
-5. 标注风险区域（安全/数据/兼容/性能）
-6. 声明测试范围（In Scope / Out of Scope）
-7. 预估用例数量与优先级分布
+Step 1（强制）：RAG 知识检索
+  ├─ 激活 `rag-query` Skill
+  ├─ 提取需求中的核心实体词（功能模块、业务对象、操作动作）
+  ├─ 构建 1-3 个精准检索查询语句
+  ├─ 调用所有可用 RAG 工具并行检索
+  ├─ 整理检索结果中的业务规则、历史用例、易遗漏场景、领域要点
+  └─ 在分析报告中标注 [RAG检索] 标签
+
+Step 2：识别文档类型与结构
+Step 3：提取功能模块列表（按业务域分组）
+Step 4：梳理核心业务流程（主流程 + 分支 + 异常流程）
+Step 5：建立功能测试矩阵（模块 × 测试维度）
+Step 6：标注风险区域（安全/数据/兼容/性能）
+Step 7：声明测试范围（In Scope / Out of Scope）
+Step 8：预估用例数量与优先级分布
 ```
 
-> ⚡ **规则**：未完成Phase 1分析前，禁止直接生成测试用例。分析结果需向用户展示并确认。
+> ⚡ **规则**：未完成Phase 1分析（含 RAG 检索）前，禁止直接生成测试用例。分析结果需向用户展示并确认。
 
 ## Phase 2：测试策略制定
 
@@ -255,11 +227,15 @@ TC-[项目代码]-[模块缩写]-[3位序号]
 
 ```
 Step 1：确认收到（1句话）
-Step 2：输出需求解析报告（功能矩阵 + 风险清单 + 用例预估）
-Step 3：询问用户确认："以上分析是否准确？是否有遗漏的功能点或特殊约束？"
-Step 4：用户确认后，按模块逐一生成测试用例
-Step 5：每个模块完成后输出质量自检结果
-Step 6：所有模块完成后输出完整汇总表 + 质量评审报告
+Step 2：执行 RAG 知识检索（严格遵循 `rag-query` Skill）
+        - 提取需求关键词
+        - 调用所有可用 RAG 工具并行检索
+        - 汇总检索结果，标注 [RAG检索] 标签
+Step 3：输出需求解析报告（含 RAG 检索结果 + 功能矩阵 + 风险清单 + 用例预估）
+Step 4：询问用户确认："以上分析是否准确？RAG 检索到的历史信息是否适用当前场景？是否有遗漏的功能点或特殊约束？"
+Step 5：用户确认后，按模块逐一生成测试用例
+Step 6：每个模块完成后输出质量自检结果
+Step 7：所有模块完成后输出完整汇总表 + 质量评审报告
 ```
 
 ## 需求不明确时的处理规则
@@ -325,10 +301,42 @@ LOGIN/REG/PROFILE/AUTH/ORDER/PAY/CART/SEARCH/UPLOAD/EXPORT/MSG/SYS/REPORT/PROD
 请始终以企业级测试工程师的专业标准执行每一个任务。现在，请告诉我你的测试需求，或直接上传需求文档。
 """
 
-"""
 def _has_image_in_messages(request: ModelRequest) -> bool:
-... Omitted obsolete logic ...
-"""
+    """检测对话消息正文中是否包含直接发送给模型的图片 block。"""
+    for message in request.messages:
+        content = message.content
+        if isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict):
+                    if block.get("type") in ("image", "image_url"):
+                        return True
+                elif hasattr(block, "type") and block.type in ("image", "image_url"):
+                    return True
+    return False
+
+
+def _has_file_attachments(request: ModelRequest) -> bool:
+    """检测是否存在前端上传的附件。
+
+    附件会由 FileContextMiddleware 解析并注入文本上下文，不应仅因 PDF 内含图片
+    或前端附带预览图片 block 就切换到视觉模型，避免未开启多模态时仍调用图片模型。
+    """
+    for message in request.messages:
+        attachments = message.additional_kwargs.get("attachments", [])
+        if isinstance(attachments, list) and attachments:
+            return True
+    return False
+
+
+@wrap_model_call
+async def dynamic_model_selection(request: ModelRequest, handler) -> ModelResponse:
+    """根据消息是否含直接图片输入，在多模态模型与文本模型之间动态切换。"""
+    has_direct_image = _has_image_in_messages(request) and not _has_file_attachments(request)
+    model = image_llm_model if has_direct_image else deepseek_model
+    if model is None:
+        return await handler(request)
+    return await handler(request.override(model=model))
+
 
 skills_root = Path(__file__).resolve().parents[2] / "workspace" / "testcase"
 skills_backend = FilesystemBackend(root_dir=skills_root, virtual_mode=True)
@@ -339,8 +347,14 @@ skills_middleware = SkillsMiddleware(
 )
 agent = create_agent(
     model=llm,
-    tools=[export_testcases_to_excel, export_testcases_to_docx],
+    tools=get_all_tools(),
     backend=skills_backend,
-    middleware=[skills_middleware, FileContextMiddleware(original_system_prompt=SYSTEM_PROMPT)],
-    system_prompt=SYSTEM_PROMPT
+    middleware=[
+        skills_middleware,
+        dynamic_model_selection,
+        RAGMiddleware(),
+        FileContextMiddleware(original_system_prompt=SYSTEM_PROMPT),
+    ],
+    system_prompt=SYSTEM_PROMPT,
+    context_schema=Context,
 )

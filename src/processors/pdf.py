@@ -4,14 +4,6 @@ PDF 文档处理器，支持文本提取和缓存
 """
 from core.config import settings
 
-"""
-版权所有 (c) 2023-2026 北京慧测信息技术有限公司(但问智能) 保留所有权利。
-
-本代码版权归北京慧测信息技术有限公司(但问智能)所有，仅用于学习交流目的，未经公司商业授权，
-不得用于任何商业用途，包括但不限于商业环境部署、售卖或以任何形式进行商业获利。违者必究。
-
-授权商业应用请联系微信：huice666
-"""
 
 # uv pip install langchain-community langchain-pymupdf4llm
 
@@ -27,6 +19,9 @@ from langchain_pymupdf4llm import PyMuPDF4LLMLoader
 from core.llms import image_llm_model
 
 logger = logging.getLogger(__name__)
+
+# Bump this when PDF/Word extraction behavior changes so middleware session caches are invalidated.
+PDF_PROCESSOR_VERSION = "2026-04-26-1"
 
 # PDF 内容缓存，避免重复解析同一个文件
 _pdf_cache = {}
@@ -232,7 +227,37 @@ def extract_pdf_text(
 
         return text_content
     except Exception as e:
-        logger.warning(f"PyMuPDF4LLM 解析失败，尝试备用方法: {e}")
+        logger.warning(f"PyMuPDF4LLM 解析失败: {e}")
+
+        if use_multimodal:
+            logger.warning("PDF 多模态解析失败，降级为纯文本解析: %s", filename)
+            try:
+                fallback_loader = PyMuPDF4LLMLoader(
+                    temp_file_path,
+                    mode="single",
+                    table_strategy="lines"
+                )
+                fallback_documents = fallback_loader.load()
+                if fallback_documents:
+                    text_content = fallback_documents[0].page_content
+                    if text_content.strip():
+                        text_content += (
+                            "\n\n[提示：PDF 内图片的多模态解析失败，已降级为纯文本解析；"
+                            "如需识别图片内容，请检查图片解析模型账号余额或关闭/重新配置多模态解析。]"
+                        )
+                    else:
+                        text_content = "PDF文件纯文本解析后内容为空；图片多模态解析失败，请检查图片解析模型账号余额或关闭/重新配置多模态解析。"
+                else:
+                    text_content = "PDF文件纯文本解析后内容为空；图片多模态解析失败，请检查图片解析模型账号余额或关闭/重新配置多模态解析。"
+
+                if cache is not None:
+                    cache[cache_key] = text_content
+                    logger.info(f"PDF降级解析内容已缓存: {filename}")
+                return text_content
+            except Exception as fallback_error:
+                logger.error("PDF 纯文本降级解析也失败: %s", fallback_error)
+                return f"PDF文件处理出错: 多模态解析失败（{str(e)}），纯文本降级解析也失败（{str(fallback_error)}）"
+
         logger.error(f"PDF文本提取失败: {e}")
         return f"PDF文件处理出错: {str(e)}"
     finally:
