@@ -99,6 +99,31 @@ class PDFProcessor:
         }
 
 
+def _pdf_has_images(pdf_data: bytes) -> bool:
+    """检测PDF文件是否包含图片。
+    
+    Args:
+        pdf_data: PDF 原始字节。
+        
+    Returns:
+        True 如果PDF包含图片，否则 False。
+    """
+    import fitz  # PyMuPDF
+    try:
+        doc = fitz.open(stream=pdf_data, filetype="pdf")
+        for page_num in range(len(doc)):
+            page = doc[page_num]
+            images = page.get_images(full=True)
+            if images:
+                doc.close()
+                return True
+        doc.close()
+        return False
+    except Exception as e:
+        logger.warning(f"检测PDF图片失败: {e}")
+        return False
+
+
 def extract_pdf_text(
         pdf_data: bytes,
         filename: str = "unknown.pdf",
@@ -113,7 +138,7 @@ def extract_pdf_text(
         filename: 文件名（用于日志/缓存key）。
         cache: 可选的缓存字典。
         enable_multimodal: 是否启用多模态解析。
-            None  → 由 settings.ENABLE_PDF_MULTIMODAL 决定。
+            None  → 自动检测PDF是否包含图片，有图片则启用多模态。
             True  → 强制多模态（豆包视觉模型）。
             False → 强制纯文本提取。
     提取的方法：
@@ -124,8 +149,19 @@ def extract_pdf_text(
         推荐 https://www.paddleocr.ai/latest/version3.x/pipeline_usage/PaddleOCR-VL.html
 
     """
-    # 完全由调用方控制：True=豆包多模态，False/None=纯文本提取（不读 .env）
-    use_multimodal = enable_multimodal is True
+    # 决定多模态策略：
+    # - True: 强制使用多模态（前端显式开启）
+    # - False: 强制纯文本（前端显式关闭）
+    # - None: 自动检测PDF是否包含图片
+    if enable_multimodal is None:
+        # 自动检测模式：检查PDF是否包含图片
+        use_multimodal = _pdf_has_images(pdf_data)
+        if use_multimodal:
+            logger.info(f"自动检测到PDF包含图片，启用多模态解析: {filename}")
+        else:
+            logger.info(f"PDF未检测到图片，使用纯文本提取: {filename}")
+    else:
+        use_multimodal = enable_multimodal is True
     # 生成PDF数据的哈希值作为缓存键
     pdf_hash = hashlib.md5(pdf_data).hexdigest()
     cache_key = f"{filename}_{pdf_hash}"

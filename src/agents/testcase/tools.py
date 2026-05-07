@@ -1,13 +1,16 @@
 """测试用例Agent的工具定义。
 
 此模块包含所有可用的工具定义，包括：
-- 基础工具：导出测试用例到 Excel / Word
+- 基础工具：导出测试用例到 Excel / Word / JSON
 - 文档工具：从 PDF 文件路径提取文本
 - RAG工具：通过 MCP 客户端获取的检索增强工具
 """
 
 import asyncio
+import os
+from datetime import datetime
 from functools import lru_cache
+from pathlib import Path
 from typing import Union, Optional
 
 from langchain.tools import tool
@@ -16,6 +19,7 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 
 from agents.testcase.excel_exporter import export_test_cases_to_excel
 from agents.testcase.docx_exporter import export_test_cases_to_docx
+from agents.testcase.json_exporter import export_test_cases_to_json
 from processors.pdf import extract_pdf_text
 
 # MCP服务器配置
@@ -26,25 +30,117 @@ MCP_SERVER_CONFIGS = {
     }
 }
 
+# 默认导出目录
+EXPORTS_DIR = Path(__file__).resolve().parents[3] / "exports"
+
+
+def _get_default_output_path(format_type: str, module_name: str = "") -> str:
+    """
+    生成默认导出文件路径。
+    
+    Args:
+        format_type: 文件格式类型 ('excel', 'word', 'json')
+        module_name: 模块名称（可选，用于文件名）
+    
+    Returns:
+        默认文件路径字符串
+    """
+    EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    
+    if module_name:
+        # 清理模块名称中的非法字符
+        safe_module = "".join(c for c in module_name if c.isalnum() or c in ('_', '-', ' '))
+        safe_module = safe_module.strip().replace(' ', '_')
+        filename = f"{safe_module}_测试用例_{timestamp}"
+    else:
+        filename = f"测试用例_{timestamp}"
+    
+    extensions = {
+        'excel': '.xlsx',
+        'word': '.docx',
+        'json': '.json'
+    }
+    
+    ext = extensions.get(format_type, '.xlsx')
+    return str(EXPORTS_DIR / f"{filename}{ext}")
+
 
 @tool
-def export_testcases_to_excel(test_cases: list, output_path: str, sheet_name: str = "测试用例") -> str:
+def export_testcases_to_excel(
+    test_cases: list, 
+    output_path: str = None, 
+    sheet_name: str = "测试用例",
+    module_name: str = ""
+) -> str:
     """
     将测试用例列表导出为 Excel 文件。
-
+    
     当用户要求导出 Excel 格式、或需要将用例导入禅道/Tapd/TestRail 等工具时调用。
+    
+    Args:
+        test_cases: 测试用例列表
+        output_path: 导出路径（可选，默认导出到 exports 目录）
+        sheet_name: 工作表名称
+        module_name: 模块名称（用于生成默认文件名）
+    
+    Returns:
+        导出文件的绝对路径
     """
+    if output_path is None:
+        output_path = _get_default_output_path('excel', module_name)
     return export_test_cases_to_excel(test_cases, output_path, sheet_name)
 
 
 @tool
-def export_testcases_to_docx(test_cases: list, output_path: str) -> str:
+def export_testcases_to_docx(
+    test_cases: list, 
+    output_path: str = None,
+    module_name: str = ""
+) -> str:
     """
     将测试用例列表导出为 Word (.docx) 文件。
-
+    
     当用户要求导出 Word / DOCX 格式的测试用例文档时调用。
+    
+    Args:
+        test_cases: 测试用例列表
+        output_path: 导出路径（可选，默认导出到 exports 目录）
+        module_name: 模块名称（用于生成默认文件名）
+    
+    Returns:
+        导出文件的绝对路径
     """
+    if output_path is None:
+        output_path = _get_default_output_path('word', module_name)
     return export_test_cases_to_docx(test_cases, output_path)
+
+
+@tool
+def export_testcases_to_json(
+    test_cases: list, 
+    output_path: str = None,
+    module_name: str = "",
+    project_name: str = "XINZHI-TEST"
+) -> str:
+    """
+    将测试用例列表导出为 JSON 文件。
+    
+    当用户要求导出 JSON 格式、或需要将用例用于自动化测试时调用。
+    
+    Args:
+        test_cases: 测试用例列表
+        output_path: 导出路径（可选，默认导出到 exports 目录）
+        module_name: 模块名称（用于生成默认文件名）
+        project_name: 项目标识，默认 XINZHI-TEST
+    
+    Returns:
+        导出文件的绝对路径
+    """
+    if output_path is None:
+        output_path = _get_default_output_path('json', module_name)
+    return export_test_cases_to_json(test_cases, output_path, project_name)
 
 
 @tool
@@ -138,6 +234,7 @@ def get_base_tools() -> list:
     return [
         export_testcases_to_excel,
         export_testcases_to_docx,
+        export_testcases_to_json,
         extract_pdf_text_from_file,
     ]
 

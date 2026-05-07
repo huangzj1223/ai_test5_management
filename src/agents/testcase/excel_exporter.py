@@ -40,12 +40,20 @@ _DEFAULT_COLUMN_WIDTHS = {
 }
 
 
-def _flatten_steps(steps: list[dict[str, Any]] | None) -> str:
+def _flatten_steps(steps: list[dict[str, Any]] | str | None) -> str:
     """将步骤列表转换为带序号的文本。"""
     if not steps:
         return ""
+    # 如果已经是字符串，直接返回
+    if isinstance(steps, str):
+        return steps
+    # 如果是列表，进行格式化
     lines = []
     for step in steps:
+        # 防止step是字符串而不是字典的情况
+        if isinstance(step, str):
+            lines.append(step)
+            continue
         seq = step.get("seq", step.get("step", len(lines) + 1))
         action = step.get("action", step.get("操作描述", ""))
         target = step.get("target", step.get("操作对象", ""))
@@ -75,9 +83,14 @@ def _flatten_expected_results(expected_results: list[str] | str | None) -> str:
         return ""
     if isinstance(expected_results, str):
         return expected_results
+    # 防止列表中包含非字符串元素
     lines = []
     for idx, result in enumerate(expected_results, start=1):
-        lines.append(f"{idx}. {result}")
+        if isinstance(result, str):
+            lines.append(f"{idx}. {result}")
+        else:
+            # 如果不是字符串，转换为字符串
+            lines.append(f"{idx}. {str(result)}")
     return "\n".join(lines)
 
 
@@ -87,9 +100,14 @@ def _flatten_preconditions(preconditions: list[str] | str | None) -> str:
         return ""
     if isinstance(preconditions, str):
         return preconditions
+    # 防止列表中包含非字符串元素
     lines = []
     for idx, cond in enumerate(preconditions, start=1):
-        lines.append(f"{idx}. {cond}")
+        if isinstance(cond, str):
+            lines.append(f"{idx}. {cond}")
+        else:
+            # 如果不是字符串，转换为字符串
+            lines.append(f"{idx}. {str(cond)}")
     return "\n".join(lines)
 
 

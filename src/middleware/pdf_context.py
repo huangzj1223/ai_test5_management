@@ -137,9 +137,9 @@ class PDFContextMiddleware(AgentMiddleware):
         # ── 第三步：只处理「最后一条」用户消息中的 PDF 或图片附件 ──
         file_infos = self._extract_files_from_last_message(request)
         # 读取前端传递的多模态开关（True=开启豆包解析，False/None=纯文本提取）
-        # 完全由前端决定，不再读取 .env ENABLE_PDF_MULTIMODAL
+        # 如果前端没有显式传递标志，则使用 None（让 PDF 处理器自动检测图片）
         frontend_flag = self._get_enable_multimodal_flag(request)
-        enable_multimodal = frontend_flag is True  # 未传或 False 统一视为关闭
+        enable_multimodal = frontend_flag  # True/False/None
         if file_infos:
             # 基于所有文件的 md5 计算 hash 以去重
             hash_builder = hashlib.md5()
